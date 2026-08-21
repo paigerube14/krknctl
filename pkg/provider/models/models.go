@@ -132,6 +132,44 @@ type ScenarioTag struct {
 	LastModified *time.Time `json:"last_modified"`
 }
 
+// UnmarshalJSON handles JSON unmarshaling for ScenarioTag, converting Unix timestamps to time.Time
+func (s *ScenarioTag) UnmarshalJSON(data []byte) error {
+	type Alias ScenarioTag
+	aux := &struct {
+		LastModified interface{} `json:"last_modified"`
+		*Alias
+	}{
+		Alias: (*Alias)(s),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Handle LastModified field which could be a Unix timestamp (int64) or RFC3339 string
+	if aux.LastModified != nil {
+		switch v := aux.LastModified.(type) {
+		case float64:
+			// Unix timestamp in seconds
+			t := time.Unix(int64(v), 0)
+			s.LastModified = &t
+		case string:
+			// RFC3339 or other time format
+			if v != "" {
+				t, err := time.Parse(time.RFC3339, v)
+				if err != nil {
+					return fmt.Errorf("invalid last_modified timestamp: %w", err)
+				}
+				s.LastModified = &t
+			}
+		case nil:
+			s.LastModified = nil
+		}
+	}
+
+	return nil
+}
+
 type ScenarioDetail struct {
 	ScenarioTag
 	Title       string              `json:"title"`
