@@ -179,9 +179,75 @@ type ScenarioDetail struct {
 	Fields      []typing.InputField `json:"fields"`
 }
 
+// UnmarshalJSON keeps the embedded ScenarioTag decoder from handling the
+// entire detail object and dropping the detail-specific fields.
+func (s *ScenarioDetail) UnmarshalJSON(data []byte) error {
+	var aux struct {
+		Name         string              `json:"name"`
+		Digest       *string             `json:"digest"`
+		Size         *int64              `json:"size"`
+		LastModified json.RawMessage     `json:"last_modified"`
+		Title        string              `json:"title"`
+		Description  string              `json:"description"`
+		IsAScenario  bool                `json:"is_a_scenario"`
+		HasRollback  bool                `json:"has_rollback"`
+		Fields       []typing.InputField `json:"fields"`
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	lastModified, err := parseLastModified(aux.LastModified)
+	if err != nil {
+		return err
+	}
+
+	s.ScenarioTag = ScenarioTag{
+		Name:         aux.Name,
+		Digest:       aux.Digest,
+		Size:         aux.Size,
+		LastModified: lastModified,
+	}
+	s.Title = aux.Title
+	s.Description = aux.Description
+	s.IsAScenario = aux.IsAScenario
+	s.HasRollback = aux.HasRollback
+	s.Fields = aux.Fields
+	return nil
+}
+
+func parseLastModified(data json.RawMessage) (*time.Time, error) {
+	if len(data) == 0 || string(data) == "null" {
+		return nil, nil
+	}
+
+	var value interface{}
+	if err := json.Unmarshal(data, &value); err != nil {
+		return nil, err
+	}
+
+	switch value := value.(type) {
+	case float64:
+		t := time.Unix(int64(value), 0)
+		return &t, nil
+	case string:
+		if value == "" {
+			return nil, nil
+		}
+		t, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid last_modified timestamp: %w", err)
+		}
+		return &t, nil
+	default:
+		return nil, fmt.Errorf("invalid last_modified timestamp type %T", value)
+	}
+}
+
 func (s *ScenarioDetail) GetFieldByName(name string) *typing.InputField {
 	for _, v := range s.Fields {
-		if *v.Name == name {
+		if v.Name != nil && *v.Name == name {
 			return &v
 		}
 	}
@@ -190,7 +256,7 @@ func (s *ScenarioDetail) GetFieldByName(name string) *typing.InputField {
 
 func (s *ScenarioDetail) GetFieldByEnvVar(envVar string) *typing.InputField {
 	for _, v := range s.Fields {
-		if *v.Variable == envVar {
+		if v.Variable != nil && *v.Variable == envVar {
 			return &v
 		}
 	}
